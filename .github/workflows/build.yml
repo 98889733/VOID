@@ -1,38 +1,160 @@
 name: Build APK
+
 on:
   push:
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  WEB_ORIENTATION: sensorLandscape   # только для веб-проектов: portrait / unspecified
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - name: Распаковать zip (если есть) или взять файлы из корня
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      # Один и тот же ключ подписи для ВСЕХ сборок,
+      # чтобы новая версия приложения ставилась поверх старой как обновление
+      - name: Ключ подписи
         run: |
-          mkdir -p game
-          if ls *.zip >/dev/null 2>&1; then unzip -q -o "$(ls -t *.zip | head -1)" -d game; else cp index.html game.js game/; fi
-          IDX=$(find game -name index.html | head -1)
-          echo "SRC=$(dirname "$IDX")" >> $GITHUB_ENV
-      - name: Собрать APK
+          mkdir -p ~/.android
+          base64 -d > ~/.android/debug.keystore <<'KS'
+          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
+          KS
+
+      - name: Найти проект (zip или файлы в корне)
         run: |
+          set -e
+          mkdir -p _proj
+          if ls *.zip >/dev/null 2>&1; then
+            ZIP="$(ls -t *.zip | head -1)"
+            echo "Распаковываю: $ZIP"
+            unzip -q -o "$ZIP" -d _proj
+            BASE="$(basename "$ZIP" .zip)"
+          else
+            echo "zip не найден, беру файлы из репозитория"
+            rsync -a --exclude='/.git' --exclude='/_proj' ./ _proj/
+            BASE="${GITHUB_REPOSITORY#*/}"
+          fi
+          # Для веб-проектов: у каждого zip свой ID, чтобы приложения не конфликтовали
+          H="$(printf '%s' "$BASE" | md5sum | cut -c1-8)"
+          echo "WEB_APP_NAME=$BASE" >> "$GITHUB_ENV"
+          echo "WEB_APP_ID=com.game.g$H" >> "$GITHUB_ENV"
+          G="$(find _proj \( -name settings.gradle -o -name settings.gradle.kts \) -not -path '*/node_modules/*' | head -1)"
+          if [ -n "$G" ]; then
+            echo "Тип: Android-проект (Gradle)"
+            echo "TYPE=native" >> "$GITHUB_ENV"
+            echo "SRC=$(dirname "$G")" >> "$GITHUB_ENV"
+          else
+            I="$(find _proj -name index.html -not -path '*/node_modules/*' | head -1)"
+            if [ -z "$I" ]; then
+              echo "::error::Не найден ни Android-проект (settings.gradle), ни index.html"
+              exit 1
+            fi
+            echo "Тип: веб-проект (Capacitor)"
+            echo "TYPE=web" >> "$GITHUB_ENV"
+            echo "SRC=$(dirname "$I")" >> "$GITHUB_ENV"
+          fi
+
+      - name: Собрать APK (Android-проект)
+        if: env.TYPE == 'native'
+        working-directory: ${{ env.SRC }}
+        run: |
+          set -e
+          if [ -f ./gradlew ]; then chmod +x ./gradlew; ./gradlew assembleDebug --no-daemon --stacktrace; else gradle assembleDebug --no-daemon --stacktrace; fi
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          APK="$(find . -path '*build/outputs/apk/debug/*.apk' | head -1)"
+          [ -n "$APK" ] || { echo "::error::APK не найден после сборки"; exit 1; }
+          cp "$APK" "$GITHUB_WORKSPACE/out/app-debug.apk"
+
+      - name: Собрать APK (веб-проект)
+        if: env.TYPE == 'web'
+        run: |
+          set -e
           mkdir -p app/www && cd app
-          cp -r ../$SRC/* www/
+          cp -r "../$SRC"/* www/
           npm init -y >/dev/null
-          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 three@0.160.0
+          npm i --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 three@0.160.0
           cp node_modules/three/build/three.module.js www/three.module.js
-          npx cap init "FPS" com.mygame.fps --web-dir www
+          npx cap init "$WEB_APP_NAME" "$WEB_APP_ID" --web-dir www
           npx cap add android
-          sed -i 's/<activity/<activity android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+          sed -i "s/<activity/<activity android:screenOrientation=\"$WEB_ORIENTATION\"/" android/app/src/main/AndroidManifest.xml
           npx cap sync android
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/out/app-debug.apk"
+
+      - name: Итог сборки
+        run: |
+          AAPT2="$(ls $ANDROID_HOME/build-tools/*/aapt2 2>/dev/null | tail -1)"
+          PKG="?"
+          [ -n "$AAPT2" ] && PKG="$("$AAPT2" dump packagename out/app-debug.apk 2>/dev/null || echo '?')"
+          ls -lh out/
+          echo "### APK готов" >> "$GITHUB_STEP_SUMMARY"
+          echo "ID приложения: \`$PKG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Тип: $TYPE, размер: $(du -h out/app-debug.apk | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: game-apk
-          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-apk
+          path: out/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
